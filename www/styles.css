@@ -1,0 +1,20 @@
+body {
+  background-color: #f9fbff;
+  font-family: "Helvetica";
+}
+
+.gpa-box {
+  font-size: 48px;
+  font-weight: bold;
+  color: white;
+  background: #4CAF50;
+  padding: 20px;
+  border-radius: 12px;
+  width: 150px;
+  text-align: center;
+}
+
+.btn-primary {
+  background-color: #6C63FF;
+  border-color: #6C63FF;
+}
