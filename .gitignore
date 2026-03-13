@@ -1,2 +1,6 @@
 .RData
 .Rhistory
+*/.DS_Store
+gpa_app/rsconnect/
+.DS_Store
+*.md

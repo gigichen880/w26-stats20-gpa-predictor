@@ -135,23 +135,8 @@ body {
 }
 .btn-primary:active { transform: translateY(0); }
 
-/* ── Button run grid ── */
-.btn-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-bottom: .4rem;
-}
-.btn-grid .btn { width: 100%; padding: .45rem .5rem !important; }
-/* Last button (KNN) spans full width when 5 items in 2-col grid */
-.btn-grid .btn:last-child:nth-child(odd) {
-  grid-column: 1 / -1;
-}
-
 /* ── Model controls ── */
-.control-row {
-  margin-bottom: .6rem;
-}
+.control-row { margin-bottom: .6rem; }
 .control-label {
   font-size: .78rem;
   font-weight: 600;
@@ -197,18 +182,16 @@ body {
   margin-bottom: 1rem;
 }
 .model-dot {
-  width: 12px;
-  height: 12px;
+  width: 12px; height: 12px;
   border-radius: 50%;
   margin-top: .45rem;
   flex-shrink: 0;
-  box-shadow: 0 0 0 3px rgba(255,255,255,.8), 0 0 0 5px currentColor;
 }
 
 /* ── Metric boxes ── */
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
   gap: .75rem;
   margin-bottom: 1.1rem;
 }
@@ -216,7 +199,6 @@ body {
   background: var(--navy);
   border-radius: var(--radius);
   padding: .9rem 1rem;
-  color: var(--cream);
 }
 .metric-box .metric-label {
   font-size: .68rem;
@@ -257,12 +239,39 @@ pre.shiny-text-output {
   margin-bottom: 1rem;
 }
 .plot-wrap .plot-label {
-  font-size: .71rem;
-  font-weight: 700;
+  font-size: .71rem !important;
+  font-weight: 700 !important;
   text-transform: uppercase;
   letter-spacing: .9px;
   color: var(--muted);
-  margin-bottom: .5rem;
+  margin-bottom: .15rem;
+}
+.plot-wrap .plot-desc {
+  font-size: .72rem !important;
+  font-weight: 400 !important;
+  font-family: 'DM Sans', sans-serif !important;
+  color: #9a9dae !important;
+  line-height: 1.45 !important;
+  margin-bottom: .5rem !important;
+  margin-top: 0 !important;
+  padding: .3rem .5rem !important;
+  background: #f8f6f2;
+  border-radius: 5px;
+  border-left: 2px solid var(--teal);
+}
+.plot-wrap .plot-desc b,
+.plot-wrap .plot-desc strong {
+  font-size: .72rem !important;
+  font-weight: 600 !important;
+  color: #5a5d6e !important;
+}
+
+/* Metrics placeholder shown before model is fit */
+.metric-grid-placeholder {
+  font-size: .8rem;
+  color: var(--muted);
+  font-style: italic;
+  padding: .6rem 0 .4rem;
 }
 
 /* ── Prediction page ── */
@@ -353,85 +362,28 @@ pre.shiny-text-output {
   margin-right: .5rem;
 }
 
-/* ── Terms grid (Linear + Quadratic 5x3) ── */
-.terms-grid {
-  display: grid;
-  grid-template-columns: 1fr 36px 36px;
-  align-items: center;
-  gap: 2px 0;
-  margin-bottom: .5rem;
-}
-.terms-header {
-  font-size: .68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .8px;
-  color: var(--teal2);
-  text-align: center;
-  padding: .25rem 0 .4rem;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 2px;
-}
-.terms-header:first-child { text-align: left; padding-left: 2px; }
-.terms-varname {
-  font-size: .82rem;
-  color: var(--text);
-  padding: .35rem 4px .35rem 2px;
-  border-bottom: 1px solid #f0ede6;
-}
-.terms-cell {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: .35rem 0;
-  border-bottom: 1px solid #f0ede6;
-}
+/* ══════════════════════════════════════════
+   VARIABLE SELECTOR TABLE
+   Rendered as a plain HTML <table> from R —
+   no CSS grid needed, columns are table cols.
+   ══════════════════════════════════════════ */
 
-/* ── Interaction matrix ── */
-.interact-wrap { overflow-x: auto; }
-.interact-grid {
-  display: grid;
-  grid-template-columns: 44px repeat(4, 38px);
-  gap: 3px;
-  width: fit-content;
-}
-.ix-corner { grid-column: 1; grid-row: 1; }
-.ix-header {
-  font-size: .67rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .6px;
-  color: var(--teal2);
-  text-align: center;
-  padding-bottom: .3rem;
-  border-bottom: 2px solid var(--teal);
-}
-.ix-rowlabel {
-  font-size: .75rem;
-  font-weight: 600;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  padding-right: 4px;
-}
-.ix-cell {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: #f8f6f0;
-  border-radius: 5px;
-  width: 34px;
-  height: 34px;
-  transition: background .15s;
-}
-.ix-cell:has(input:checked) { background: rgba(46,196,182,.18); }
-.ix-cell.ix-empty { background: transparent; }
-.grid-cb {
-  width: 15px;
-  height: 15px;
+/* The table itself is styled inline from R.
+   We add a few overrides here for hover & focus. */
+.var-grid-cb {
   accent-color: var(--teal);
   cursor: pointer;
 }
+
+/* Checked row highlight — works on any browser supporting :has */
+tr:has(.var-grid-cb:checked) {
+  background: rgba(46,196,182,.07) !important;
+}
+
+/* ══════════════════════════════════════════
+   INTERACTION MATRIX TABLE
+   ══════════════════════════════════════════ */
+.interact-wrap { overflow-x: auto; padding-bottom: 4px; }
 
 /* ── Misc ── */
 hr {
@@ -471,14 +423,33 @@ table.table tbody tr:first-child td {
   font-weight: 700;
   color: var(--teal2);
 }
-table.table tbody tr:hover td {
-  background: #f0faf9;
-}
-table.table-striped tbody tr:nth-child(even) td {
-  background: #faf8f4;
-}
+table.table tbody tr:hover td { background: #f0faf9; }
+table.table-striped tbody tr:nth-child(even) td { background: #faf8f4; }
 
-/* ── Term-usage badges on model headers ── */
-.model-section-header .section-sub + div span {
-  margin-top: .25rem;
+/* ── Sub-tab styling (Models page) ── */
+.nav-tabs {
+  border-bottom: 2px solid var(--teal) !important;
+  margin-bottom: 0 !important;
+}
+.nav-tabs > li > a {
+  font-family: 'DM Sans', sans-serif !important;
+  font-size: .83rem !important;
+  font-weight: 500 !important;
+  color: var(--muted) !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px 8px 0 0 !important;
+  padding: .55rem 1.1rem !important;
+  transition: color .15s, background .15s;
+}
+.nav-tabs > li > a:hover {
+  color: var(--teal) !important;
+  background: rgba(46,196,182,.07) !important;
+  border-color: transparent !important;
+}
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover {
+  color: var(--navy) !important;
+  background: var(--card) !important;
+  border-color: var(--teal) var(--teal) var(--card) !important;
+  font-weight: 600 !important;
 }
