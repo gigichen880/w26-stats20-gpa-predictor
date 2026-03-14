@@ -1,45 +1,35 @@
-# ============================================================
-#  helpers.R  —  shared utilities for GPA Lifestyle Analyzer
-# ============================================================
+#  helpers.R: shared utilities 
 
 load_data <- function(path) {
   df <- read.csv(path, stringsAsFactors=FALSE)
+  # Rename columns
   rename_map <- c(
-    Study_Hours_Per_Day             = "study",
-    Sleep_Hours_Per_Day             = "sleep",
-    Social_Hours_Per_Day            = "social",
+    Study_Hours_Per_Day = "study",
+    Sleep_Hours_Per_Day = "sleep",
+    Social_Hours_Per_Day = "social",
     Physical_Activity_Hours_Per_Day = "exercise",
-    Extracurricular_Hours_Per_Day   = "extra"
+    Extracurricular_Hours_Per_Day = "extra",
+    Stress_Level = "stress"
   )
   for (old in names(rename_map)) {
     new <- rename_map[[old]]
     if (old %in% names(df) && !new %in% names(df))
       names(df)[names(df) == old] <- new
   }
-  if (!"GPA" %in% names(df)) {
-    gpa_col <- names(df)[tolower(names(df)) == "gpa"]
-    if (length(gpa_col) == 1) names(df)[names(df) == gpa_col] <- "GPA"
-  }
-  # Normalise stress column name if present
-  stress_candidates <- names(df)[grepl("stress", names(df), ignore.case=TRUE)]
-  if (length(stress_candidates) > 0 && !"Stress_Level" %in% names(df)) {
-    names(df)[names(df) == stress_candidates[1]] <- "Stress_Level"
-  }
 
-  # Convert stress to ordered factor if present
-  if ("Stress_Level" %in% names(df)) {
-    lvls <- c("Low","Moderate","High")
-    present <- unique(df$Stress_Level)
-    # use whatever levels exist, fall back to alphabetical
-    use_lvls <- intersect(lvls, present)
-    if (length(use_lvls) == 0) use_lvls <- sort(present)
-    df$Stress_Level <- factor(df$Stress_Level, levels=use_lvls, ordered=TRUE)
-  }
+  # Convert stress Low, Moderate, High to 0, 1, 2
+  lvls <- c("Low","Moderate","High")
+  present <- unique(df$stress)
+  use_lvls <- intersect(lvls, present)
+  if (length(use_lvls) == 0) use_lvls <- sort(present)
+  df$stress <- as.integer(factor(df$stress, levels=use_lvls)) - 1L
 
-  key_cols <- intersect(c("GPA","study","sleep","social","exercise","extra"), names(df))
+  key_cols <- intersect(c("GPA","study","sleep","social","exercise","extra", "stress"), names(df))
+  # Remove rows with missing data
   df[complete.cases(df[, key_cols, drop=FALSE]), ]
 }
 
+# Unify the theme of visualizations
 theme_gpa <- function(base_size=11) {
   ggplot2::theme_minimal(base_size=base_size, base_family="DM Sans") +
     ggplot2::theme(
@@ -58,23 +48,42 @@ theme_gpa <- function(base_size=11) {
     )
 }
 
+# Visualize regression coefficients with CIs
 plot_coefs <- function(model) {
   coefs <- coef(model)
   ci    <- suppressMessages(confint(model))
-  idx   <- -1
-  df <- data.frame(term=names(coefs)[idx], est=coefs[idx],
-                   lo=ci[idx,1], hi=ci[idx,2])
-  df$term <- factor(df$term, levels=df$term[order(df$est)])
-  df$sign <- ifelse(df$est >= 0, "pos", "neg")
-  ggplot2::ggplot(df, ggplot2::aes(est, term, colour=sign)) +
-    ggplot2::geom_vline(xintercept=0, linetype="dashed", colour="#ccc", linewidth=.7) +
-    ggplot2::geom_errorbarh(ggplot2::aes(xmin=lo, xmax=hi),
-                            height=.25, linewidth=.7, alpha=.6) +
-    ggplot2::geom_point(size=3) +
-    ggplot2::scale_colour_manual(values=c(pos="#2ec4b6", neg="#e84855"), guide="none") +
-    ggplot2::labs(x="Coefficient Estimate (95% CI)", y=NULL) + theme_gpa()
+
+  idx <- names(coefs) != "(Intercept)"
+
+  df <- data.frame(
+    term = names(coefs)[idx],
+    est  = coefs[idx],
+    lo   = ci[idx,1],
+    hi   = ci[idx,2]
+  )
+  
+  # Clean labels
+  df$label <- gsub("stress", "Stress", df$term)
+  df$label <- gsub("I\\((.+)\\^2\\)", "\\1²", df$label)
+  df$label <- gsub(":", " × ", df$label)
+
+  # Order by effect size
+  df <- df[order(abs(df$est)), ]
+  df$label <- factor(df$label, levels=df$label)
+
+  # Significant if CI does not cross 0
+  sig <- ifelse(df$lo > 0 | df$hi < 0, "#2ec4b6", "#e84855")
+
+  ggplot(df, aes(x=est, y=label)) +
+    geom_vline(xintercept=0, linetype="dashed", colour="#bbb", linewidth=.6) +
+    geom_errorbarh(aes(xmin=lo, xmax=hi), height=.25, colour=sig, linewidth=.75) +
+    geom_point(size=2.8, colour=sig) +
+    labs(x="Coefficient Estimate (95% CI)", y=NULL) +
+    theme_gpa() +
+    theme(axis.text.y=element_text(size=8))
 }
 
+# Visualize correlation matrix as heatmap
 plot_corr_heatmap <- function(df, var_vals, var_labels) {
   all_vars   <- c(var_vals, "GPA")
   all_labels <- c(var_labels, "GPA")
@@ -100,9 +109,13 @@ plot_corr_heatmap <- function(df, var_vals, var_labels) {
                    legend.position="right")
 }
 
-metric_box <- function(label, value) {
+# Metric Box UI
+metric_box <- function(label, value, desc = NULL) {
   shiny::tags$div(class="metric-box",
     shiny::tags$div(class="metric-label", label),
-    shiny::tags$div(class="metric-value", as.character(value))
+    if (!is.null(desc))
+      shiny::tags$div(class="control-hint", desc),
+    shiny::tags$div(class="metric-value", as.character(value)),
+    
   )
 }
