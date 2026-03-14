@@ -30,7 +30,7 @@ tab_predict <- tabPanel("Predict", div(class="tab-content",
         div(style="margin-bottom:1.5rem;",
           div(style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;",
             tags$span(style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#7a7d8e;",
-                      "Hours used today"),
+                      "Hours Used"),
             uiOutput("budget_label")
           ),
           div(style="background:#e4e0d8;border-radius:99px;height:11px;overflow:hidden;",
@@ -38,16 +38,16 @@ tab_predict <- tabPanel("Predict", div(class="tab-content",
           uiOutput("budget_warning")
         ),
 
-        make_pred_slider("p_study",    "📚  Study",           6, "#2ec4b6"),
-        make_pred_slider("p_sleep",    "😴  Sleep",           7, "#6a4c93"),
-        make_pred_slider("p_social",   "💬  Social",          2, "#f4a261"),
-        make_pred_slider("p_exercise", "🏃  Exercise",        1, "#2d6a4f"),
-        make_pred_slider("p_extra",    "🎭  Extracurricular", 1, "#e84855"),
+        make_pred_slider("p_study", "Study", 6, "#2ec4b6"),
+        make_pred_slider("p_sleep", "Sleep", 7, "#6a4c93"),
+        make_pred_slider("p_social", "Social", 2, "#f4a261"),
+        make_pred_slider("p_exercise", "Exercise", 1, "#2d6a4f"),
+        make_pred_slider("p_extra", "Extracurricular", 1, "#e84855"),
 
         # Stress level radio
         div(style="margin-top:1.2rem;",
           tags$p(style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#7a7d8e;margin-bottom:.55rem;",
-                 "😰  Stress Level"),
+                 "Stress Level"),
           div(style="display:flex;gap:.7rem;",
             lapply(list(list("Low",0,"#2ec4b6"), list("Moderate",1,"#f4a261"), list("High",2,"#e84855")),
               function(x) {
@@ -81,8 +81,7 @@ tab_predict <- tabPanel("Predict", div(class="tab-content",
     # ── Right: results ────────────────────────────────────────────────────────
     column(5,
       uiOutput("pred_result_ui"),
-      uiOutput("pred_interp_ui"),
-      uiOutput("pred_breakdown_ui")
+      uiOutput("pred_interp_ui")
     )
   ),
 

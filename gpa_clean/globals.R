@@ -12,6 +12,7 @@ source("helpers.R")
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 data <- load_data("data/student_lifestyle_dataset.csv")
+gpa_breaks <- quantile(data$GPA, probs = c(0.2, 0.4, 0.6, 0.8), na.rm = TRUE)
 
 # ── Shared constants ───────────────────────────────────────────────────────────
 NUMERIC_VARS <- c(
