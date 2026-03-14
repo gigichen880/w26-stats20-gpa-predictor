@@ -12,9 +12,6 @@ source("helpers.R")
 
 data_raw <- load_data("data/student_lifestyle_dataset.csv")
 
-# Encode Stress_Level as a single ordered numeric: Low=0, Moderate=1, High=2.
-# This treats stress as one predictor with a linear dose-response interpretation:
-# each step up in stress changes GPA by a single coefficient β.
 data_raw$stress <- as.integer(factor(data_raw$Stress_Level,
                                       levels = c("Low","Moderate","High"))) - 1L
 data <- data_raw
@@ -29,13 +26,21 @@ NUMERIC_VARS <- c(
 )
 
 MODEL_COLORS <- c(
-  "Linear Regression" = "#2ec4b6",
-  "Decision Tree"     = "#0f1b2d",
-  "Random Forest"     = "#f4a261",
-  "Ridge"             = "#6a4c93",
-  "Lasso"             = "#e84855",
-  "KNN"               = "#2d6a4f"
+  "Linear Regression"    = "#2ec4b6",
+  "Decision Tree"        = "#0f1b2d",
+  "Random Forest"        = "#f4a261",
+  "Ridge"                = "#6a4c93",
+  "Lasso"                = "#6a4c93",
+  "Elastic Net (α=0.5)"  = "#6a4c93",
+  "KNN"                  = "#2d6a4f"
 )
+
+# Helper: get colour for a model name (handles dynamic Elastic Net labels)
+model_color <- function(nm) {
+  if (nm %in% names(MODEL_COLORS)) return(MODEL_COLORS[[nm]])
+  if (grepl("Elastic Net|Ridge|Lasso", nm)) return("#6a4c93")
+  "#7a7d8e"  # fallback
+}
 
 # ── UI helpers ───────────────────────────────────────────────────
 
@@ -47,9 +52,6 @@ term_badge <- function(txt, col = "#2ec4b6")
     ";margin-right:.3rem;margin-bottom:.3rem;"
   ))
 
-# Renders a clean HTML <table> for variable selection.
-# show_quadratic=TRUE adds a third column (OLS only).
-# Stress Level always appears at bottom with a separator.
 var_grid_ui <- function(ns, show_quadratic = FALSE,
                         default_checked = "study") {
   cb_name_me <- paste0(ns, "_main_effects")
@@ -91,7 +93,6 @@ var_grid_ui <- function(ns, show_quadratic = FALSE,
     }
   }
 
-  # Stress row — numeric 0/1/2, so quadratic IS allowed here
   stress_cb <- tags$input(type="checkbox", name=cb_name_me, value="stress",
                            class=paste("var-grid-cb", cb_cls),
                            style="width:15px;height:15px;accent-color:#2ec4b6;cursor:pointer;")
@@ -148,7 +149,6 @@ var_grid_ui <- function(ns, show_quadratic = FALSE,
   )
 }
 
-# Interaction grid — numeric vars only (5×5 upper triangle)
 interaction_grid_ui <- function(ns) {
   vars   <- unname(NUMERIC_VARS)
   labels <- names(NUMERIC_VARS)
@@ -209,7 +209,6 @@ cv5 <- function(save_preds = FALSE)
   trainControl(method="cv", number=5,
                savePredictions=if(save_preds) "final" else "none")
 
-# Build formula — stress is now plain numeric "stress", no special handling needed
 build_formula <- function(main_vars, quad=NULL, inter=NULL) {
   if (is.null(main_vars) || length(main_vars)==0) return(NULL)
   terms <- c(main_vars,
@@ -220,6 +219,27 @@ build_formula <- function(main_vars, quad=NULL, inter=NULL) {
 
 get_inp <- function(input, nm) {
   v <- input[[nm]]; if (is.null(v)||length(v)==0) NULL else v
+}
+
+# ── Helper: one colour-accented slider row ───────────────────────
+make_pred_slider <- function(id, label, default_val, accent_color) {
+  tagList(
+    div(style = "margin-bottom:.9rem;",
+      div(style = "display:flex; justify-content:space-between; align-items:baseline; margin-bottom:.1rem;",
+        tags$span(style = "font-size:.84rem; font-weight:600; color:#2d3142;", label),
+        uiOutput(paste0(id, "_val_display"), inline = TRUE)
+      ),
+      sliderInput(id, NULL,
+        min = 0, max = 16, value = default_val, step = 0.5,
+        width = "100%"
+      )
+    ),
+    tags$style(HTML(paste0(
+      "#", id, " .irs--shiny .irs-bar          { background:", accent_color, " !important; border-color:", accent_color, " !important; }",
+      "#", id, " .irs--shiny .irs-handle        { background:", accent_color, " !important; border-color:", accent_color, " !important; }",
+      "#", id, " .irs--shiny .irs-single        { background:", accent_color, " !important; }"
+    )))
+  )
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -266,7 +286,6 @@ ui <- navbarPage(
   tabPanel("Models", div(class="tab-content",
     tabsetPanel(id="model_tabs", type="tabs",
 
-      # OLS
       tabPanel("OLS", br(),
         sidebarLayout(
           sidebarPanel(width=4,
@@ -286,36 +305,28 @@ ui <- navbarPage(
             actionButton("run_ols","Fit OLS Model",class="btn btn-primary",style="width:100%")
           ),
           mainPanel(width=8,
-            # uiOutput("ols_metrics_ui"),
+            uiOutput("ols_metrics_ui"),
             fluidRow(
               column(6,div(class="plot-wrap",
                 div(class="plot-label","Coefficient Estimates"),
-                div(class="control-hint",
-                  " * Point estimate ± 95% CI. Red bars cross zero (not significant) ",
-               ),
+                div(class="control-hint"," * Point estimate ± 95% CI. Red bars cross zero (not significant) "),
                 plotOutput("ols_coef_plot",height="250px")
               )),
               column(6,div(class="plot-wrap",
                 div(class="plot-label","Residuals vs Fitted"),
-                div(class="control-hint",
-                  " * A curved or funnel shape signals non-linearity or heteroscedasticity."
-                ),
+                div(class="control-hint"," * A curved or funnel shape signals non-linearity or heteroscedasticity."),
                 plotOutput("ols_resid_plot",height="250px")
               ))
             ),
             fluidRow(
               column(6,div(class="plot-wrap",
                 div(class="plot-label","Normal Q-Q"),
-                div(class="control-hint",
-                  " * A straight 45-degree diagnal line indicates normal residuals."
-                ),
+                div(class="control-hint"," * A straight 45-degree diagonal line indicates normal residuals."),
                 plotOutput("ols_qq_plot",height="210px")
               )),
               column(6,div(class="plot-wrap",
                 div(class="plot-label","Scale-Location"),
-                div(class="control-hint",
-                  " * A flat red line indicates homoscedasticity."
-                ),
+                div(class="control-hint"," * A flat red line indicates homoscedasticity."),
                 plotOutput("ols_scale_plot",height="210px")
               ))
             ),
@@ -324,7 +335,6 @@ ui <- navbarPage(
         )
       ),
 
-      # Decision Tree
       tabPanel("Decision Tree", br(),
         sidebarLayout(
           sidebarPanel(width=4,
@@ -355,7 +365,6 @@ ui <- navbarPage(
         )
       ),
 
-      # Random Forest
       tabPanel("Random Forest", br(),
         sidebarLayout(
           sidebarPanel(width=4,
@@ -386,7 +395,6 @@ ui <- navbarPage(
         )
       ),
 
-      # Ridge / Lasso
       tabPanel("Ridge / Lasso", br(),
         sidebarLayout(
           sidebarPanel(width=4,
@@ -419,7 +427,6 @@ ui <- navbarPage(
         )
       ),
 
-      # KNN
       tabPanel("KNN", br(),
         sidebarLayout(
           sidebarPanel(width=4,
@@ -449,14 +456,14 @@ ui <- navbarPage(
         )
       ),
 
-      # Compare
       tabPanel("Compare All", br(),
         div(class="model-section",
           div(class="model-section-header",
             div(class="model-dot",style="background:#e84855"),
             div(div(class="section-title","Model Comparison"),
-                div(class="section-sub","5-fold CV across all models using each model's current variable selection."))
+                div(class="section-sub","5-fold CV reusing each model you've already fitted — same variables, same hyperparameters. Fit models first in their respective tabs."))
           ),
+          uiOutput("cmp_status_ui"),
           div(style="margin-bottom:1.2rem",
               actionButton("compare_models","Run Comparison",
                            class="btn btn-primary",style="min-width:200px")),
@@ -474,31 +481,128 @@ ui <- navbarPage(
     )
   )),
 
-  # ── PREDICT ────────────────────────────────────────────────
+
+  # ── PREDICT ──────────────────────────────────────────────────
   tabPanel("Predict", div(class="tab-content",
-    div(class="section-title","Predict Your GPA"),
-    div(class="section-sub","Enter your typical daily hours. OLS model gives a 95% prediction interval."),
-    fluidRow(
-      column(8, div(class="gpa-card", tags$h4("Your Daily Hours"),
-        fluidRow(
-          column(4,
-            numericInput("p_study","Study (hrs)",   value=6,min=0,max=24,step=.5),
-            numericInput("p_sleep","Sleep (hrs)",   value=7,min=0,max=24,step=.5)),
-          column(4,
-            numericInput("p_social",  "Social (hrs)",         value=2,min=0,max=24,step=.5),
-            numericInput("p_exercise","Exercise (hrs)",       value=1,min=0,max=24,step=.5)),
-          column(4,
-            numericInput("p_extra","Extracurricular (hrs)",   value=1,min=0,max=24,step=.5),
-            br(),
-            actionButton("run_predict","Predict GPA",
-                         class="btn btn-primary",style="width:100%;margin-top:.3rem"))
-        )
-      )),
-      column(4, uiOutput("pred_result_ui"))
+
+    div(class="hero-band",
+      h2("Predict Your GPA"),
+      p("Choose a model you've already fitted in the Models tab, enter your daily hours, and get a personalised GPA estimate."),
+      div(
+        span(class="stat-pill", "Use Your Fitted Models"),
+        span(class="stat-pill", "24-hr Budget Enforced"),
+        span(class="stat-pill", "Per-model Insights")
+      )
     ),
-    uiOutput("pred_interp_ui")
+
+    fluidRow(
+
+      # ── Left: inputs ──────────────────────────────────────
+      column(7,
+
+        # Model selector card
+        div(class="gpa-card", style="margin-bottom:1rem;",
+          tags$h4("Select Model"),
+          tags$p(style="font-size:.8rem;color:#7a7d8e;margin-top:-.5rem;margin-bottom:1rem;",
+            "Only models fitted in the Models tab are available. Head there first and click a Fit button."
+          ),
+          uiOutput("pred_model_selector")
+        ),
+
+        # Inputs card
+        div(class="gpa-card",
+          tags$h4("Daily Hour Allocation"),
+
+          # Budget bar
+          div(style="margin-bottom:1.5rem;",
+            div(style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;",
+              tags$span(style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#7a7d8e;",
+                        "Hours used today"),
+              uiOutput("budget_label")
+            ),
+            div(style="background:#e4e0d8;border-radius:99px;height:11px;overflow:hidden;",
+              uiOutput("budget_bar")
+            ),
+            uiOutput("budget_warning")
+          ),
+
+          make_pred_slider("p_study",    "📚  Study",           6, "#2ec4b6"),
+          make_pred_slider("p_sleep",    "😴  Sleep",           7, "#6a4c93"),
+          make_pred_slider("p_social",   "💬  Social",          2, "#f4a261"),
+          make_pred_slider("p_exercise", "🏃  Exercise",        1, "#2d6a4f"),
+          make_pred_slider("p_extra",    "🎭  Extracurricular", 1, "#e84855"),
+
+          # Stress radio (only relevant for OLS/Ridge/Lasso — shown always, used when applicable)
+          div(style="margin-top:1.2rem;",
+            tags$p(style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:#7a7d8e;margin-bottom:.55rem;",
+                   "😰  Stress Level"),
+            div(style="display:flex;gap:.7rem;",
+              lapply(list(list("Low",0,"#2ec4b6"), list("Moderate",1,"#f4a261"), list("High",2,"#e84855")),
+                function(x) {
+                  input_attrs <- list(type="radio", name="p_stress_radio",
+                                      value=x[[2]], style="display:none;")
+                  if (x[[2]] == 1) input_attrs[["checked"]] <- NA
+                  tags$label(
+                    class = "stress-radio-label",
+                    style = paste0(
+                      "flex:1;text-align:center;cursor:pointer;padding:.6rem .4rem;",
+                      "border-radius:9px;border:2px solid ", x[[3]], "30;",
+                      "font-size:.83rem;font-weight:600;color:", x[[3]], ";",
+                      "transition:background .15s,border-color .15s;"
+                    ),
+                    do.call(tags$input, input_attrs),
+                    x[[1]]
+                  )
+                }
+              )
+            )
+          ),
+
+          div(style="margin-top:1.6rem;",
+            actionButton("run_predict", "Predict My GPA  →",
+                         class="btn btn-primary",
+                         style="width:100%;font-size:.93rem;padding:.72rem;letter-spacing:.3px;")
+          )
+        )
+      ),
+
+      # ── Right: results ────────────────────────────────────
+      column(5,
+        uiOutput("pred_result_ui"),
+        uiOutput("pred_interp_ui"),
+        uiOutput("pred_breakdown_ui")
+      )
+    ),
+
+    tags$script(HTML("
+      function styleStress() {
+        document.querySelectorAll('input[name=\"p_stress_radio\"]').forEach(function(r) {
+          var lbl = r.closest('label');
+          if (!lbl) return;
+          if (r.checked) {
+            var col = r.value == 0 ? '#2ec4b6' : r.value == 1 ? '#f4a261' : '#e84855';
+            lbl.style.background  = col + '18';
+            lbl.style.borderColor = col;
+          } else {
+            lbl.style.background  = 'transparent';
+            lbl.style.borderColor = '';
+          }
+        });
+        var checked = document.querySelector('input[name=\"p_stress_radio\"]:checked');
+        if (checked) Shiny.setInputValue('p_stress', parseInt(checked.value), {priority:'event'});
+      }
+      $(document).ready(function() {
+        setTimeout(function() {
+          styleStress();
+          document.querySelectorAll('input[name=\"p_stress_radio\"]').forEach(function(r) {
+            r.addEventListener('change', styleStress);
+          });
+        }, 500);
+      });
+    "))
   ))
-)
+)  # end navbarPage
+
 
 # ═══════════════════════════════════════════════════════════════
 #  SERVER
@@ -561,9 +665,8 @@ server <- function(input, output, session) {
     quad  <- isolate(get_inp(input,"ols_quadratic_terms"))
     inter <- isolate(get_inp(input,"ols_interaction_terms"))
     f <- build_formula(main,quad,inter); req(f)
-    # Fit with the formula evaluated in global env so summary() prints it clearly
     m <- lm(f, data=data)
-    m$call$formula <- f   # replace `f` token with actual formula in call
+    m$call$formula <- f
     m
   },ignoreInit=TRUE)
 
@@ -576,57 +679,59 @@ server <- function(input, output, session) {
   },ignoreInit=TRUE)
 
   output$ols_metrics_ui <- renderUI({
-    fitted <- !isTruthy(ols_model()) && !isTruthy(ols_cv())
-    if (fitted) {
-      s <- summary(ols_model())
-      r2   <- round(s$r.squared, 3)
-      ar2  <- round(s$adj.r.squared, 3)
-      rmse <- round(ols_cv()$results$RMSE, 3)
-      aic  <- round(AIC(ols_model()), 1)
-    } else {
-      r2 <- ar2 <- rmse <- aic <- "—"
-    }
-    div(class="metric-grid",
+    req(ols_model())
+    m  <- ols_model()
+    s  <- summary(m)
+    r2   <- round(s$r.squared,     3)
+    ar2  <- round(s$adj.r.squared, 3)
+    # CV RMSE: use ols_cv if available, else show training RMSE with asterisk
+    rmse_txt <- tryCatch({
+      cv_res <- ols_cv()
+      rmse_v <- cv_res$results$RMSE
+      paste0(round(min(rmse_v, na.rm=TRUE), 3))
+    }, error = function(e) {
+      paste0(round(sqrt(mean(resid(m)^2)), 3), "*")
+    })
+    aic  <- round(AIC(m), 1)
+    f    <- s$fstatistic
+    pval <- if (!is.null(f)) pf(f[1], f[2], f[3], lower.tail=FALSE) else NA
+    pval_txt <- if (!is.na(pval)) {
+      if (pval < 0.001) "< 0.001" else as.character(round(pval, 3))
+    } else "—"
+    n_terms <- length(coef(m)) - 1L
+    div(class="metric-grid", style="margin-bottom:1rem;",
       metric_box("R²",      r2),
       metric_box("Adj. R²", ar2),
-      metric_box("CV RMSE", rmse),
-      metric_box("AIC",     aic)
+      metric_box("CV RMSE", rmse_txt),
+      metric_box("AIC",     aic),
+      metric_box("F p-val", pval_txt),
+      metric_box("Terms",   n_terms)
     )
   })
 
   output$ols_summary    <- renderPrint({ req(ols_model()); summary(ols_model()) })
 
-  # Coef plot — clean up stress dummy labels for display
   output$ols_coef_plot  <- renderPlot({
     req(ols_model())
     m <- ols_model()
     ci <- confint(m)
     coefs <- coef(m)
-    # Drop intercept
     idx <- names(coefs) != "(Intercept)"
-    df  <- data.frame(
-      term  = names(coefs)[idx],
-      est   = coefs[idx],
-      lo    = ci[idx, 1],
-      hi    = ci[idx, 2]
-    )
-    # Humanise labels
+    df  <- data.frame(term=names(coefs)[idx],est=coefs[idx],lo=ci[idx,1],hi=ci[idx,2])
     df$label <- df$term
-    df$label <- gsub("stress",        "Stress", df$label)
-    df$label <- gsub("I\\((.+)\\^2\\)", "\\1²",             df$label)
-    df$label <- gsub(":",              " × ",                df$label)
-    df <- df[order(abs(df$est)), ]
-    df$label <- factor(df$label, levels = df$label)
+    df$label <- gsub("stress","Stress",df$label)
+    df$label <- gsub("I\\((.+)\\^2\\)","\\1²",df$label)
+    df$label <- gsub(":"," × ",df$label)
+    df <- df[order(abs(df$est)),]
+    df$label <- factor(df$label, levels=df$label)
     sig <- ifelse(df$lo > 0 | df$hi < 0, "#2ec4b6", "#e84855")
-    ggplot(df, aes(x = est, y = label)) +
-      geom_vline(xintercept = 0, linetype = "dashed", colour = "#bbb", linewidth = .6) +
-      geom_errorbarh(aes(xmin = lo, xmax = hi), height = .25,
-                     colour = sig, linewidth = .75) +
-      geom_point(size = 2.8, colour = sig) +
-      labs(x = "Coefficient Estimate (95% CI)", y = NULL) +
-      theme_gpa() +
-      theme(axis.text.y = element_text(size = 8))
-  }, bg = "transparent")
+    ggplot(df,aes(x=est,y=label))+
+      geom_vline(xintercept=0,linetype="dashed",colour="#bbb",linewidth=.6)+
+      geom_errorbarh(aes(xmin=lo,xmax=hi),height=.25,colour=sig,linewidth=.75)+
+      geom_point(size=2.8,colour=sig)+
+      labs(x="Coefficient Estimate (95% CI)",y=NULL)+theme_gpa()+
+      theme(axis.text.y=element_text(size=8))
+  },bg="transparent")
   output$ols_resid_plot <- renderPlot({
     req(ols_model())
     df <- data.frame(fitted=fitted(ols_model()),resid=resid(ols_model()))
@@ -813,70 +918,128 @@ server <- function(input, output, session) {
 
   # ── Model Comparison ─────────────────────────────────────────
   compare_results <- eventReactive(input$compare_models, {
+    # ── Reuse each already-fitted model reactive; run proper 5-fold CV for all ──
     results <- list()
+    ctrl5 <- trainControl(method="cv", number=5, savePredictions="final")
 
-    run_c <- function(nm, vars, method, extra=list()) {
-      tryCatch({
-        req(vars)
-        f <- build_formula(vars)
-        set.seed(42)
-        ctrl <- trainControl(method="cv",number=5,savePredictions="final")
-        r  <- do.call(train, c(list(form=f,data=data,method=method,trControl=ctrl),extra))
-        br <- r$results[which.min(r$results$RMSE),]
-        ps <- r$pred[order(r$pred$rowIndex),]
-        results[[nm]] <<- list(RMSE=br$RMSE,MAE=br$MAE,
-          Rsq=if("Rsquared"%in%names(br)) br$Rsquared else NA,
-          pred=ps$pred,obs=ps$obs)
-      },error=function(e) NULL)
+    cv_metrics <- function(preds_df) {
+      # preds_df has columns: pred, obs, Resample (from caret savePredictions)
+      ps  <- preds_df[order(preds_df$rowIndex), ]
+      rmse <- sqrt(mean((ps$obs - ps$pred)^2))
+      mae  <- mean(abs(ps$obs - ps$pred))
+      rsq  <- cor(ps$obs, ps$pred)^2
+      list(RMSE=rmse, MAE=mae, Rsq=rsq, pred=ps$pred, obs=ps$obs)
     }
 
-    # OLS
+    # ── OLS: re-run CV with exact same formula as fitted model ──────────────
     tryCatch({
-      f <- build_formula(isolate(get_inp(input,"ols_main_effects")),
-                         isolate(get_inp(input,"ols_quadratic_terms")),
-                         isolate(get_inp(input,"ols_interaction_terms")))
-      if(!is.null(f)){
-        set.seed(42)
-        ctrl <- trainControl(method="cv",number=5,savePredictions="final")
-        r  <- train(f,data=data,method="lm",trControl=ctrl)
-        br <- r$results; ps <- r$pred[order(r$pred$rowIndex),]
-        results[["Linear Regression"]] <- list(RMSE=br$RMSE,MAE=br$MAE,
-          Rsq=if("Rsquared"%in%names(br)) br$Rsquared else NA,
-          pred=ps$pred,obs=ps$obs)
-      }
-    },error=function(e) NULL)
-
-    run_c("Decision Tree", isolate(get_inp(input,"tree_main_effects")),
-          "rpart", list(tuneGrid=data.frame(cp=0.01)))
-    run_c("KNN", isolate(get_inp(input,"knn_main_effects")),
-          "knn", list(preProcess=c("center","scale"),tuneGrid=data.frame(k=seq(3,15,2))))
-
-    tryCatch({
-      gvars <- isolate(get_inp(input,"glmnet_main_effects"))
-      if(is.null(gvars) || length(gvars)<2) gvars <- c("study","sleep")
-      X <- as.matrix(data[,gvars,drop=FALSE]); y <- data$GPA
-      for(nm_g in c("Ridge","Lasso")){
-        al <- if(nm_g=="Ridge") 0 else 1
-        set.seed(42); cv_g <- cv.glmnet(X,y,alpha=al,nfolds=5)
-        lam <- cv_g$lambda.min; idx <- which(cv_g$lambda==lam)
-        fit_g <- glmnet(X,y,alpha=al,lambda=lam); phat <- as.vector(predict(fit_g,newx=X))
-        results[[nm_g]] <- list(RMSE=sqrt(cv_g$cvm[idx]),MAE=mean(abs(y-phat)),
-                                Rsq=cor(y,phat)^2,pred=phat,obs=y)
-      }
-    },error=function(e) NULL)
-
-    tryCatch({
-      vars <- isolate(get_inp(input,"rf_main_effects")); req(vars)
+      m <- ols_model()                          # already fitted reactive
+      f <- formula(m)
       set.seed(42)
-      m <- randomForest(build_formula(vars),data=data,
-                        ntree=isolate(input$rf_ntree),importance=FALSE)
-      phat <- predict(m,data); y <- data$GPA
-      results[["Random Forest"]] <- list(RMSE=sqrt(m$mse[length(m$mse)]),
-        MAE=mean(abs(y-phat)),Rsq=cor(y,phat)^2,pred=phat,obs=y)
-    },error=function(e) NULL)
+      r <- train(f, data=data, method="lm", trControl=ctrl5)
+      results[["Linear Regression"]] <- cv_metrics(r$pred)
+    }, error=function(e) NULL)
+
+    # ── Decision Tree: re-run CV with same vars + same max depth ────────────
+    tryCatch({
+      m    <- tree_model()
+      vars <- isolate(get_inp(input, "tree_main_effects"))
+      f    <- build_formula(vars)
+      depth <- isolate(input$tree_depth) %||% 3
+      set.seed(42)
+      r <- train(f, data=data, method="rpart", trControl=ctrl5,
+                 tuneGrid=data.frame(cp=m$control$cp %||% 0.01),
+                 control=rpart.control(maxdepth=depth))
+      results[["Decision Tree"]] <- cv_metrics(r$pred)
+    }, error=function(e) NULL)
+
+    # ── Random Forest: 5-fold CV using same formula + ntree ─────────────────
+    tryCatch({
+      m     <- rf_model()
+      f     <- formula(m$terms)
+      ntree <- isolate(input$rf_ntree) %||% 200
+      set.seed(42)
+      r <- train(f, data=data, method="rf", trControl=ctrl5,
+                 ntree=ntree,
+                 tuneGrid=data.frame(mtry=m$mtry))
+      results[["Random Forest"]] <- cv_metrics(r$pred)
+    }, error=function(e) NULL)
+
+    # ── Elastic Net: re-run CV with same vars + same alpha + lambda.min ─────
+    tryCatch({
+      cv_fit <- glmnet_cv_fit()
+      g_in   <- glmnet_inputs()
+      X      <- g_in$X; y <- g_in$y
+      alpha  <- g_in$alpha
+      lam    <- cv_fit$lambda.min
+
+      # 5-fold CV predictions using the fitted lambda
+      set.seed(42)
+      folds <- sample(rep(1:5, length.out=nrow(X)))
+      preds <- numeric(nrow(X)); obs <- numeric(nrow(X))
+      for (k in 1:5) {
+        test_idx  <- folds == k
+        train_idx <- !test_idx
+        fit_k <- glmnet(X[train_idx,], y[train_idx], alpha=alpha, lambda=lam)
+        preds[test_idx] <- as.numeric(predict(fit_k, newx=X[test_idx,], s=lam))
+        obs[test_idx]   <- y[test_idx]
+      }
+      rmse <- sqrt(mean((obs-preds)^2)); mae <- mean(abs(obs-preds)); rsq <- cor(obs,preds)^2
+      method_label <- if(alpha==0) "Ridge" else if(alpha==1) "Lasso" else
+                        paste0("Elastic Net (α=",alpha,")")
+      results[[method_label]] <- list(RMSE=rmse, MAE=mae, Rsq=rsq, pred=preds, obs=obs)
+    }, error=function(e) NULL)
+
+    # ── KNN: re-run CV with same vars + best k from fitted model ────────────
+    tryCatch({
+      m    <- knn_cv()
+      vars <- isolate(get_inp(input, "knn_main_effects"))
+      f    <- build_formula(vars)
+      best_k <- m$bestTune$k
+      set.seed(42)
+      r <- train(f, data=data, method="knn", trControl=ctrl5,
+                 preProcess=c("center","scale"),
+                 tuneGrid=data.frame(k=best_k))
+      results[["KNN"]] <- cv_metrics(r$pred)
+    }, error=function(e) NULL)
 
     results
-  },ignoreInit=TRUE)
+  }, ignoreInit=TRUE)
+
+  # ── Status banner showing which models are fitted ─────────────────────
+  output$cmp_status_ui <- renderUI({
+    model_checks <- list(
+      list("Linear Regression", !is.null(tryCatch(ols_model(),  error=function(e) NULL))),
+      list("Decision Tree",     !is.null(tryCatch(tree_model(), error=function(e) NULL))),
+      list("Random Forest",     !is.null(tryCatch(rf_model(),   error=function(e) NULL))),
+      list("Regularised",       !is.null(tryCatch(glmnet_cv_fit(), error=function(e) NULL))),
+      list("KNN",               !is.null(tryCatch(knn_cv(),     error=function(e) NULL)))
+    )
+    pills <- lapply(model_checks, function(x) {
+      nm     <- x[[1]]; fitted <- x[[2]]
+      col    <- if (fitted) "#2ec4b6" else "#e4e0d8"
+      txtcol <- if (fitted) "#0f1b2d" else "#aaa"
+      icon   <- if (fitted) "✓" else "○"
+      tags$span(style=paste0(
+        "display:inline-flex;align-items:center;gap:.3rem;",
+        "background:", col, "22;border:1px solid ", col, ";",
+        "border-radius:20px;padding:.2rem .65rem;font-size:.72rem;",
+        "font-weight:700;color:", txtcol, ";margin-right:.4rem;margin-bottom:.4rem;"
+      ), icon, " ", nm)
+    })
+    n_fitted <- sum(sapply(model_checks, `[[`, 2))
+    div(style="margin-bottom:1rem;",
+      div(style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#7a7d8e;margin-bottom:.5rem;",
+          paste0("Models ready: ", n_fitted, " / ", length(model_checks))),
+      div(pills),
+      if (n_fitted == 0)
+        div(style="margin-top:.6rem;font-size:.82rem;color:#e84855;",
+            "No models fitted yet — go to the Models tab and fit at least one.")
+      else if (n_fitted < length(model_checks))
+        div(style="margin-top:.6rem;font-size:.82rem;color:#7a7d8e;",
+            "Unfitted models will be skipped in the comparison.")
+    )
+  })
 
   cmp_plot <- function(metric, ylab, hi=FALSE) {
     req(compare_results()); res <- compare_results()
@@ -892,7 +1055,7 @@ server <- function(input, output, session) {
       geom_text(aes(label=round(Value,3)),vjust=-.4,size=3.1,fontface="bold")+
       geom_point(data=df[bi,],aes(Model,Value),shape=9,size=3.5,colour="#e84855",
                  position=position_nudge(y=max(df$Value)*.06))+
-      scale_fill_manual(values=MODEL_COLORS)+
+      scale_fill_manual(values=setNames(sapply(levels(df$Model), model_color), levels(df$Model)))+
       scale_y_continuous(expand=expansion(mult=c(0,.22)))+
       labs(x=NULL,y=ylab)+theme_gpa()+
       theme(axis.text.x=element_text(angle=30,hjust=1,size=7.5))
@@ -915,7 +1078,8 @@ server <- function(input, output, session) {
       geom_abline(slope=1,intercept=0,colour="#ccc",linewidth=.7,linetype="dashed")+
       geom_point(alpha=.25,size=.9,show.legend=FALSE)+
       geom_smooth(method="lm",formula=y~x,se=FALSE,linewidth=.8,show.legend=FALSE)+
-      facet_wrap(~Model,nrow=1)+scale_colour_manual(values=MODEL_COLORS)+
+      facet_wrap(~Model,nrow=1)+
+      scale_colour_manual(values=setNames(sapply(unique(long$Model), model_color), unique(long$Model)))+
       coord_fixed(xlim=lims,ylim=lims)+
       labs(x="Actual GPA",y="Predicted GPA")+theme_gpa()+
       theme(strip.text=element_text(face="bold",size=8),
@@ -933,39 +1097,486 @@ server <- function(input, output, session) {
     names(df)[4] <- "R²"; df
   },striped=TRUE,hover=TRUE,bordered=FALSE,spacing="s",width="100%")
 
-  # ── Predict ─────────────────────────────────────────────────
-  pred_result <- eventReactive(input$run_predict, {
-    m  <- lm(GPA ~ study+sleep+social+exercise+extra,data=data)
-    nd <- data.frame(study=input$p_study,sleep=input$p_sleep,
-                     social=input$p_social,exercise=input$p_exercise,extra=input$p_extra)
-    pred <- predict(m,newdata=nd,interval="prediction",level=.95)
-    list(gpa=round(pred[1,"fit"],2),low=round(pred[1,"lwr"],2),
-         high=round(pred[1,"upr"],2),model=m)
+
+  # ══════════════════════════════════════════════════════════
+  #  PREDICT — server
+  # ══════════════════════════════════════════════════════════
+
+  # ── Slider value displays ────────────────────────────────
+  lapply(list(
+    list("p_study",    "#2ec4b6"),
+    list("p_sleep",    "#6a4c93"),
+    list("p_social",   "#f4a261"),
+    list("p_exercise", "#2d6a4f"),
+    list("p_extra",    "#e84855")
+  ), function(x) {
+    local({
+      id  <- x[[1]]
+      col <- x[[2]]
+      output[[paste0(id, "_val_display")]] <- renderUI({
+        val <- input[[id]] %||% 0
+        tags$span(style = paste0("font-size:.82rem;font-weight:700;color:", col, ";"),
+                  paste0(val, " hrs"))
+      })
+    })
   })
 
-  output$pred_result_ui <- renderUI({
-    req(pred_result()); r <- pred_result(); gpa <- max(0,min(4,r$gpa))
-    div(class="pred-result",
-      div(class="pred-label","Predicted GPA"),
-      div(class="pred-gpa",gpa),
-      div(class="pred-ci",paste0("95% PI: [",max(0,r$low)," – ",min(4,r$high),"]"))
+  # ── 24-hr budget ─────────────────────────────────────────
+  total_hours <- reactive({
+    round((input$p_study %||% 0) + (input$p_sleep %||% 0) +
+          (input$p_social %||% 0) + (input$p_exercise %||% 0) +
+          (input$p_extra %||% 0), 1)
+  })
+
+  output$budget_bar <- renderUI({
+    pct <- min(total_hours() / 24 * 100, 100)
+    col <- if (pct <= 70) "#2ec4b6" else if (pct <= 90) "#f4a261" else "#e84855"
+    div(style = paste0("width:", pct, "%; height:100%; border-radius:99px;",
+                       "background:", col, "; transition:width .25s, background .25s;"))
+  })
+
+  output$budget_label <- renderUI({
+    tot <- total_hours(); rem <- round(24 - tot, 1)
+    col <- if (tot <= 17) "#2ec4b6" else if (tot <= 22) "#f4a261" else "#e84855"
+    tags$span(style = paste0("font-size:.82rem;font-weight:700;color:", col, ";"),
+              paste0(tot, " / 24 hrs  (", max(rem, 0), " free)"))
+  })
+
+  output$budget_warning <- renderUI({
+    if (total_hours() > 24)
+      div(style = "margin-top:.5rem;padding:.4rem .8rem;background:#fef2f3;border-left:3px solid #e84855;border-radius:0 6px 6px 0;font-size:.78rem;color:#e84855;font-weight:600;",
+          "⚠️  Total exceeds 24 hours — reduce one or more values before predicting.")
+  })
+
+  # ── Model selector — dynamic, only fitted models enabled ─
+  # Keys that map selector label → internal id
+  MODEL_KEYS <- c(
+    "Linear Regression (OLS)" = "ols",
+    "Decision Tree"           = "tree",
+    "Random Forest"           = "rf",
+    "Regularised (Elastic Net)" = "glmnet",
+    "KNN"                     = "knn"
+  )
+  MODEL_ACCENT <- c(
+    ols   = "#2ec4b6",
+    tree  = "#0f1b2d",
+    rf    = "#f4a261",
+    glmnet = "#6a4c93",
+    knn   = "#2d6a4f"
+  )
+
+  # Reactive: which models are currently fitted
+  fitted_flags <- reactive({
+    list(
+      ols   = !is.null(tryCatch(ols_model(),   error=function(e) NULL)),
+      tree  = !is.null(tryCatch(tree_model(),  error=function(e) NULL)),
+      rf    = !is.null(tryCatch(rf_model(),    error=function(e) NULL)),
+      glmnet = !is.null(tryCatch(glmnet_cv_fit(), error=function(e) NULL)),
+      knn   = !is.null(tryCatch(knn_cv(),      error=function(e) NULL))
     )
   })
 
-  output$pred_interp_ui <- renderUI({
-    req(pred_result()); r <- pred_result(); s <- summary(r$model)
-    gpa  <- max(0,min(4,r$gpa))
-    tier <- if(gpa>=3.7)"excellent — top-tier academic performance"
-            else if(gpa>=3.3)"strong — above the typical student"
-            else if(gpa>=3.0)"solid — around average for college students"
-            else if(gpa>=2.5)"moderate — some room for improvement"
-            else "low — consider reviewing your study habits"
-    div(class="interp-box",tags$b("Interpretation: "),
-      sprintf("Based on your inputs, the model predicts a GPA of %.2f (%s). ",gpa,tier),
-      sprintf("The model (R² = %.3f) explains %.1f%% of GPA variance. ",
-              s$r.squared,s$r.squared*100),
-      "The 95% prediction interval reflects plausible individual variation.")
-  })
-}
+  output$pred_model_selector <- renderUI({
+    flags <- fitted_flags()
+    any_fitted <- any(unlist(flags))
 
-shinyApp(ui,server)
+    if (!any_fitted) {
+      return(div(
+        style = "padding:.8rem 1rem;background:#fdfaf6;border:1px dashed #ddd8ce;border-radius:8px;font-size:.83rem;color:#7a7d8e;",
+        "No models fitted yet. Go to the ",
+        tags$b("Models"), " tab, choose variables, and click a Fit button."
+      ))
+    }
+
+    # Build radio-button style tiles for each model
+    tiles <- lapply(names(MODEL_KEYS), function(label) {
+      key     <- MODEL_KEYS[[label]]
+      is_fit  <- isTRUE(flags[[key]])
+      accent  <- MODEL_ACCENT[[key]]
+
+      if (is_fit) {
+        first_fitted <- names(which(unlist(flags)))[1]
+        inp_attrs <- list(
+          type  = "radio",
+          name  = "pred_model_radio",
+          value = key,
+          style = paste0("accent-color:", accent, ";width:14px;height:14px;flex-shrink:0;")
+        )
+        if (key == first_fitted) inp_attrs[["checked"]] <- NA
+        radio_input <- do.call(tags$input, inp_attrs)
+        tags$label(
+          style = paste0(
+            "display:flex;align-items:center;gap:.6rem;padding:.6rem .9rem;",
+            "border-radius:8px;border:2px solid ", accent, "30;",
+            "cursor:pointer;margin-bottom:.4rem;",
+            "transition:background .15s,border-color .15s;"
+          ),
+          class = "model-sel-label",
+          `data-accent` = accent,
+          radio_input,
+          div(
+            div(style = paste0("font-size:.83rem;font-weight:600;color:", accent, ";"), label),
+            div(style = "font-size:.7rem;color:#2d6a4f;font-weight:600;", "✓ Fitted")
+          )
+        )
+      } else {
+        div(
+          style = paste0(
+            "display:flex;align-items:center;gap:.6rem;padding:.6rem .9rem;",
+            "border-radius:8px;border:2px solid #e4e0d8;",
+            "margin-bottom:.4rem;opacity:.45;"
+          ),
+          div(style="width:14px;height:14px;border-radius:50%;border:2px solid #ccc;flex-shrink:0;"),
+          div(
+            div(style="font-size:.83rem;font-weight:600;color:#7a7d8e;", label),
+            div(style="font-size:.7rem;color:#aaa;", "Not fitted — go to Models tab")
+          )
+        )
+      }
+    })
+
+    tagList(
+      div(tiles),
+      tags$script(HTML("
+        $(document).on('change', 'input[name=\"pred_model_radio\"]', function() {
+          // Style selected tile
+          $('.model-sel-label').each(function() {
+            var acc = $(this).data('accent');
+            var inp = $(this).find('input[type=radio]');
+            if (inp.is(':checked')) {
+              $(this).css({'background': acc + '12', 'border-color': acc});
+            } else {
+              $(this).css({'background': 'transparent', 'border-color': acc + '30'});
+            }
+          });
+          Shiny.setInputValue('pred_model_choice', $(this).val(), {priority:'event'});
+        });
+        // Init
+        setTimeout(function() {
+          var first = $('input[name=\"pred_model_radio\"]:first');
+          if (first.length) {
+            first.prop('checked', true).trigger('change');
+          }
+        }, 300);
+      "))
+    )
+  })
+
+  # ── Build new-data frame from slider inputs ───────────────
+  make_newdata <- function() {
+    stress_val <- if (!is.null(input$p_stress)) as.integer(input$p_stress) else 1L
+    data.frame(
+      study    = input$p_study    %||% 6,
+      sleep    = input$p_sleep    %||% 7,
+      social   = input$p_social   %||% 2,
+      exercise = input$p_exercise %||% 1,
+      extra    = input$p_extra    %||% 1,
+      stress   = stress_val
+    )
+  }
+
+  # ── Prediction dispatcher ─────────────────────────────────
+  pred_result <- eventReactive(input$run_predict, {
+    choice <- input$pred_model_choice %||% "ols"
+    nd     <- make_newdata()
+    flags  <- fitted_flags()
+
+    # Return error as data so only ONE panel shows it
+    if (total_hours() > 24)
+      return(list(error="Total hours exceed 24 — please reduce one or more sliders."))
+    if (!isTRUE(flags[[choice]]))
+      return(list(error=paste0("The selected model hasn't been fitted yet. ",
+                               "Go to the Models tab and click its Fit button.")))
+
+    result <- switch(choice,
+
+      "ols" = {
+        m    <- ols_model()
+        # Only use variables that were actually in the model
+        nd_m <- nd[, intersect(names(nd), all.vars(formula(m))[-1]), drop=FALSE]
+        p    <- predict(m, newdata=nd_m, interval="prediction", level=.95)
+        list(gpa=round(p[1,"fit"],2), low=round(p[1,"lwr"],2), high=round(p[1,"upr"],2),
+             has_pi=TRUE, model_obj=m, type="ols", nd=nd_m)
+      },
+
+      "tree" = {
+        m    <- tree_model()
+        nd_m <- nd[, intersect(names(nd), attr(m$terms,"term.labels")), drop=FALSE]
+        p    <- predict(m, newdata=nd_m)
+        list(gpa=round(p,2), low=NA, high=NA,
+             has_pi=FALSE, model_obj=m, type="tree", nd=nd_m)
+      },
+
+      "rf" = {
+        m    <- rf_model()
+        nd_m <- nd[, intersect(names(nd), rownames(importance(m))), drop=FALSE]
+        p    <- predict(m, newdata=nd_m)
+        list(gpa=round(p,2), low=NA, high=NA,
+             has_pi=FALSE, model_obj=m, type="rf", nd=nd_m)
+      },
+
+      "glmnet" = {
+        cv_fit <- glmnet_cv_fit()
+        g_in   <- glmnet_inputs()
+        nd_m   <- nd[, g_in$vars, drop=FALSE]
+        X_new  <- as.matrix(nd_m)
+        p      <- predict(cv_fit, newx=X_new, s="lambda.min")
+        alpha  <- g_in$alpha
+        method_label <- if(alpha==0) "Ridge" else if(alpha==1) "Lasso" else paste0("Elastic Net (α=",alpha,")")
+        list(gpa=round(as.numeric(p),2), low=NA, high=NA,
+             has_pi=FALSE, model_obj=cv_fit, type="glmnet", nd=nd_m,
+             g_vars=g_in$vars, method_label=method_label)
+      },
+
+      "knn" = {
+        m    <- knn_cv()
+        nd_m <- nd[, intersect(names(nd), m$finalModel$xNames %||%
+                     names(m$trainingData)[-ncol(m$trainingData)]), drop=FALSE]
+        p    <- predict(m, newdata=nd_m)
+        list(gpa=round(p,2), low=NA, high=NA,
+             has_pi=FALSE, model_obj=m, type="knn", nd=nd_m)
+      }
+    )
+    result
+  }, ignoreInit=TRUE)
+
+  # ── Result card ───────────────────────────────────────────
+  output$pred_result_ui <- renderUI({
+    req(pred_result())
+    r <- pred_result()
+    if (!is.null(r$error)) {
+      return(div(class="interp-box",
+        style="border-left-color:#e84855;background:#fef2f3;margin-bottom:1rem;",
+        tags$b("⚠️ "), r$error
+      ))
+    }
+    gpa <- max(0, min(4, r$gpa))
+    col <- if (gpa >= 3.5) "#2ec4b6" else if (gpa >= 3.0) "#f4a261" else "#e84855"
+
+    model_label <- if (!is.null(r$method_label)) r$method_label else {
+      lbl <- names(MODEL_KEYS)[MODEL_KEYS == r$type]
+      if (length(lbl)) lbl else toupper(r$type)
+    }
+
+    ci_section <- if (r$has_pi) {
+      lo <- max(0, r$low); hi <- min(4, r$high)
+      tagList(
+        div(class="pred-ci",
+          "95% Prediction Interval", tags$br(),
+          tags$strong(style=paste0("color:", col, ";font-size:.95rem;"),
+                      paste0("[", lo, "  –  ", hi, "]"))
+        ),
+        div(style="margin-top:1.2rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,.12);",
+          div(style="font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(245,240,232,.4);margin-bottom:.4rem;",
+              "GPA  0.0 ──────────── 4.0"),
+          div(style="background:rgba(255,255,255,.1);border-radius:99px;height:8px;position:relative;",
+            div(style=paste0("position:absolute;top:0;height:100%;border-radius:99px;",
+                             "left:", round(lo/4*100,1), "%;",
+                             "width:", round((hi-lo)/4*100,1), "%;",
+                             "background:", col, "40;")),
+            div(style=paste0("position:absolute;top:0;height:100%;border-radius:99px;",
+                             "width:", round(gpa/4*100,1), "%;background:", col, ";"))
+          )
+        )
+      )
+    } else {
+      tagList(
+        div(class="pred-ci",
+          tags$span(style="font-size:.72rem;color:rgba(245,240,232,.5);",
+                    "Point estimate only — prediction intervals are not available for this model type.")
+        ),
+        div(style="margin-top:1.2rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,.12);",
+          div(style="font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(245,240,232,.4);margin-bottom:.4rem;",
+              "GPA  0.0 ──────────── 4.0"),
+          div(style="background:rgba(255,255,255,.1);border-radius:99px;height:8px;position:relative;",
+            div(style=paste0("position:absolute;top:0;height:100%;border-radius:99px;",
+                             "width:", round(gpa/4*100,1), "%;background:", col, ";"))
+          )
+        )
+      )
+    }
+
+    div(class="pred-result", style="margin-bottom:1rem;",
+      div(style=paste0("font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;",
+                       "color:", MODEL_ACCENT[[r$type]], ";margin-bottom:.3rem;"),
+          model_label),
+      div(class="pred-label", "Predicted GPA"),
+      div(class="pred-gpa", style=paste0("color:", col, ";"), gpa),
+      ci_section
+    )
+  })
+
+  # ── Interpretation box ────────────────────────────────────
+  output$pred_interp_ui <- renderUI({
+    req(pred_result())
+    r <- pred_result()
+    if (!is.null(r$error)) return(NULL)
+    gpa <- max(0, min(4, r$gpa))
+    tier <- if (gpa >= 3.7) "excellent — top-tier academic performance"
+            else if (gpa >= 3.3) "strong — above the typical student"
+            else if (gpa >= 3.0) "solid — around the college average"
+            else if (gpa >= 2.5) "moderate — some room for improvement"
+            else "below average — consider reviewing your study habits"
+
+    model_label <- if (!is.null(r$method_label)) r$method_label else {
+      lbl <- names(MODEL_KEYS)[MODEL_KEYS == r$type]
+      if (length(lbl)) lbl else toupper(r$type)
+    }
+    pi_note <- if (r$has_pi) {
+      s <- summary(r$model_obj)
+      sprintf("The model (R² = %.3f) explains %.1f%% of GPA variance. The 95%% PI reflects plausible individual variation.",
+              s$r.squared, s$r.squared*100)
+    } else {
+      paste0("Note: ", model_label, " does not produce analytical prediction intervals. ",
+             "For uncertainty estimates, switch to the OLS model.")
+    }
+
+    div(class="interp-box", style="margin-bottom:1rem;",
+      tags$b("Interpretation: "),
+      sprintf("Using %s, the model predicts a GPA of %.2f (%s). ", model_label, gpa, tier),
+      pi_note
+    )
+  })
+
+  # ── Per-model insight panel ───────────────────────────────
+  output$pred_breakdown_ui <- renderUI({
+    req(pred_result())
+    r <- pred_result()
+    if (!is.null(r$error)) return(NULL)
+
+    if (r$type == "ols") {
+      # Coefficient × input contributions
+      cf   <- coef(r$model_obj)
+      nd   <- r$nd
+      vars <- intersect(c("study","sleep","social","exercise","extra","stress"), names(nd))
+      labs_map <- c(study="Study", sleep="Sleep", social="Social",
+                    exercise="Exercise", extra="Extra", stress="Stress")
+      cols_map <- c(study="#2ec4b6", sleep="#6a4c93", social="#f4a261",
+                    exercise="#2d6a4f", extra="#e84855", stress="#7a7d8e")
+
+      contribs <- sapply(vars, function(v) {
+        cv <- cf[v]; if (is.na(cv)) 0 else cv * nd[[v]]
+      })
+      abs_max <- max(abs(contribs), na.rm=TRUE)
+      if (!is.finite(abs_max) || abs_max == 0) abs_max <- 1
+
+      rows <- lapply(vars, function(v) {
+        val <- round(contribs[v], 3)
+        if (is.na(val)) val <- 0
+        pct <- abs(val) / abs_max * 100
+        col <- cols_map[v]
+        pos <- val >= 0
+        div(style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem;",
+          div(style="width:72px;font-size:.75rem;font-weight:600;color:#2d3142;flex-shrink:0;", labs_map[v]),
+          div(style="flex:1;background:#f5f0e8;border-radius:99px;height:7px;position:relative;overflow:hidden;",
+            div(style=paste0("position:absolute;top:0;height:100%;border-radius:99px;background:", col, ";",
+                             if(pos) paste0("left:0;width:",round(pct,1),"%;")
+                             else    paste0("right:0;width:",round(pct,1),"%;")))
+          ),
+          div(style=paste0("width:50px;text-align:right;font-size:.75rem;font-weight:700;color:",
+                           if(pos)"#2ec4b6" else "#e84855",";"),
+              if(pos) paste0("+",val) else as.character(val))
+        )
+      })
+      div(class="gpa-card",
+        tags$h4("Factor Contributions"),
+        tags$p(style="font-size:.78rem;color:#7a7d8e;margin-top:-.5rem;margin-bottom:.9rem;",
+               "OLS coefficient × your input — each variable's pull on predicted GPA"),
+        div(rows)
+      )
+
+    } else if (r$type %in% c("tree", "rf")) {
+      # Variable importance from the fitted model
+      imp <- if (r$type == "tree") {
+        vi <- r$model_obj$variable.importance
+        if (is.null(vi)) return(NULL)
+        data.frame(var=names(vi), imp=as.numeric(vi), stringsAsFactors=FALSE)
+      } else {
+        vi <- importance(r$model_obj, type=1)
+        data.frame(var=rownames(vi), imp=vi[,1], stringsAsFactors=FALSE)
+      }
+      imp <- imp[order(imp$imp, decreasing=TRUE),]
+      imp$imp_pct <- imp$imp / max(imp$imp) * 100
+      col <- if (r$type=="tree") "#0f1b2d" else "#f4a261"
+
+      rows <- lapply(seq_len(nrow(imp)), function(i) {
+        div(style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem;",
+          div(style="width:72px;font-size:.75rem;font-weight:600;color:#2d3142;flex-shrink:0;",
+              imp$var[i]),
+          div(style="flex:1;background:#f5f0e8;border-radius:99px;height:7px;overflow:hidden;",
+            div(style=paste0("width:",round(imp$imp_pct[i],1),"%;height:100%;background:",col,";border-radius:99px;"))
+          ),
+          div(style=paste0("width:50px;text-align:right;font-size:.75rem;font-weight:700;color:",col,";"),
+              round(imp$imp[i],1))
+        )
+      })
+      type_label <- if(r$type=="tree") "Decision Tree" else "Random Forest"
+      imp_label  <- if(r$type=="tree") "Importance score" else "% Inc. MSE"
+      div(class="gpa-card",
+        tags$h4("Variable Importance"),
+        tags$p(style="font-size:.78rem;color:#7a7d8e;margin-top:-.5rem;margin-bottom:.9rem;",
+               paste0(type_label, " importance (", imp_label, ") from your fitted model")),
+        div(rows)
+      )
+
+    } else if (r$type == "glmnet") {
+      # Show non-zero coefficients at lambda.min
+      cf_mat  <- coef(r$model_obj, s="lambda.min")
+      cf_vec  <- as.numeric(cf_mat)[-1]
+      nms     <- rownames(cf_mat)[-1]
+      df      <- data.frame(var=nms, coef=cf_vec, stringsAsFactors=FALSE)
+      df      <- df[order(abs(df$coef), decreasing=TRUE),]
+      abs_max <- max(abs(df$coef)); if(abs_max==0) abs_max <- 1
+      col     <- "#6a4c93"
+      method  <- r$method_label %||% "Regularised"
+      alpha   <- glmnet_inputs()$alpha
+      lasso_note <- if(alpha==1) " — zero coefficients dropped by Lasso" else
+                    if(alpha==0) "" else " — partial shrinkage via Elastic Net"
+
+      rows <- lapply(seq_len(nrow(df)), function(i) {
+        val <- round(df$coef[i], 4)
+        pct <- abs(val)/abs_max*100
+        pos <- val >= 0
+        div(style="display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem;",
+          div(style="width:72px;font-size:.75rem;font-weight:600;color:#2d3142;flex-shrink:0;", df$var[i]),
+          div(style="flex:1;background:#f5f0e8;border-radius:99px;height:7px;position:relative;overflow:hidden;",
+            div(style=paste0("position:absolute;top:0;height:100%;border-radius:99px;background:",col,";",
+                             if(pos) paste0("left:0;width:",round(pct,1),"%;")
+                             else    paste0("right:0;width:",round(pct,1),"%;")))
+          ),
+          div(style=paste0("width:58px;text-align:right;font-size:.75rem;font-weight:700;color:",
+                           if(pos)"#2ec4b6" else "#e84855",";"),
+              if(pos) paste0("+",val) else as.character(val))
+        )
+      })
+      div(class="gpa-card",
+        tags$h4(paste0(method, " Coefficients")),
+        tags$p(style="font-size:.78rem;color:#7a7d8e;margin-top:-.5rem;margin-bottom:.9rem;",
+               paste0("Shrunk coefficients at lambda.min", lasso_note)),
+        div(rows)
+      )
+
+    } else if (r$type == "knn") {
+      best_k <- r$model_obj$bestTune$k
+      rmse   <- round(min(r$model_obj$results$RMSE), 3)
+      div(class="gpa-card",
+        tags$h4("KNN Model Info"),
+        tags$p(style="font-size:.78rem;color:#7a7d8e;margin-top:-.5rem;margin-bottom:.9rem;",
+               "KNN predicts by averaging the GPA of the nearest neighbours in the training data."),
+        div(class="metric-grid",
+          metric_box("Best k",   best_k),
+          metric_box("CV RMSE",  rmse)
+        ),
+        div(style="font-size:.78rem;color:#7a7d8e;margin-top:.5rem;",
+          "KNN has no coefficients or importances — interpretability comes from the k-plot in the Models tab."
+        )
+      )
+    }
+  })
+
+}  # end server
+
+# Null-coalescing operator
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
+shinyApp(ui, server)
